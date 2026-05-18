@@ -1,14 +1,17 @@
-// JWT verification middleware
-const jwt = require('jsonwebtoken');
+const jwt = require("jsonwebtoken");
 
-module.exports = function (req, res, next) {
-  const token = req.header('Authorization')?.split(' ')[1];
-  if (!token) return res.status(401).json({ message: 'Access denied. No token provided.' });
-  try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+function verifyToken(req, res, next) {
+  const token = req.cookies.token;
+  if (!token) {
+    return res.status(401).json({ message: "Unauthorized. Please login." });
+  }
+  jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
+    if (err) {
+      return res.status(403).json({ message: "Token is invalid or expired." });
+    }
     req.user = decoded;
     next();
-  } catch (err) {
-    res.status(400).json({ message: 'Invalid token.' });
-  }
-};
+  });
+}
+
+module.exports = verifyToken;
