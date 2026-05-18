@@ -12,9 +12,13 @@ const requestRoutes = require("./src/routes/request.routes");
 const app = express();
 
 // CORS configuration
+const allowedOrigins = process.env.CLIENT_URL
+	? process.env.CLIENT_URL.split(",")
+	: ["http://localhost:3000"];
+
 app.use(
 	cors({
-		origin: process.env.CLIENT_URL.split(","),
+		origin: allowedOrigins,
 		credentials: true,
 	})
 );
@@ -39,17 +43,22 @@ app.use((err, req, res, next) => {
 	res.status(500).json({ message: "Internal server error." });
 });
 
-// Start server after DB connection
-const PORT = process.env.PORT || 5000;
-connectDB().then(() => {
-	app.listen(PORT, () => {
-		console.log(`Server running on port ${PORT}`);
-	});
+// Export for Vercel serverless
+module.exports = app;
 
-	// Graceful shutdown
-	process.on("SIGINT", async () => {
-		console.log("Shutting down gracefully...");
-		await closeDB();
-		process.exit(0);
+// Start server locally (not on Vercel)
+if (process.env.NODE_ENV !== "production") {
+	const PORT = process.env.PORT || 5000;
+	connectDB().then(() => {
+		app.listen(PORT, () => {
+			console.log(`Server running on port ${PORT}`);
+		});
+
+		// Graceful shutdown
+		process.on("SIGINT", async () => {
+			console.log("Shutting down gracefully...");
+			await closeDB();
+			process.exit(0);
+		});
 	});
-});
+}
