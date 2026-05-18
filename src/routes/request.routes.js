@@ -26,7 +26,7 @@ router.post("/", verifyToken, async (req, res) => {
 			return res.status(409).json({ message: "You have already submitted a request for this pet." });
 		}
 		// 5. Create request
-		const request = new AdoptionRequest({
+		const request = await AdoptionRequest.create({
 			petId,
 			petName,
 			userName,
@@ -35,7 +35,6 @@ router.post("/", verifyToken, async (req, res) => {
 			message,
 			status: "pending",
 		});
-		await request.save();
 		res.status(201).json(request);
 	} catch (err) {
 		res.status(500).json({ message: "Internal server error." });
@@ -45,10 +44,28 @@ router.post("/", verifyToken, async (req, res) => {
 // GET /api/requests/mine (PRIVATE, must be before /:id)
 router.get("/mine", verifyToken, async (req, res) => {
 	try {
-		const requests = await AdoptionRequest.find({ userEmail: req.user.email })
-			.sort({ createdAt: -1 })
-			.populate({ path: "petId", select: "name imageUrl" });
-		res.status(200).json(requests);
+		const requests = await AdoptionRequest.findByUserEmail(req.user.email);
+		// Sort by createdAt descending
+		const sortedRequests = requests.sort(
+			(a, b) => new Date(b.createdAt) - new Date(a.createdAt)
+		);
+		
+		// Populate pet details
+		const enrichedRequests = await Promise.all(
+			sortedRequests.map(async (req) => {
+				const pet = await Pet.findById(req.petId);
+				return {
+					...req,
+					petId: {
+						_id: pet?._id,
+						name: pet?.name,
+						imageUrl: pet?.imageUrl,
+					},
+				};
+			})
+		);
+		
+		res.status(200).json(enrichedRequests);
 	} catch (err) {
 		res.status(500).json({ message: "Internal server error." });
 	}
@@ -62,8 +79,11 @@ router.get("/pet/:petId", verifyToken, async (req, res) => {
 		if (pet.ownerEmail !== req.user.email) {
 			return res.status(403).json({ message: "Access denied." });
 		}
-		const requests = await AdoptionRequest.find({ petId: req.params.petId }).sort({ createdAt: -1 });
-		res.status(200).json(requests);
+		const requests = await AdoptionRequest.findByPetId(req.params.petId);
+		const sortedRequests = requests.sort(
+			(a, b) => new Date(b.createdAt) - new Date(a.createdAt)
+		);
+		res.status(200).json(sortedRequests);
 	} catch (err) {
 		res.status(500).json({ message: "Internal server error." });
 	}
@@ -86,17 +106,19 @@ router.patch("/:id", verifyToken, async (req, res) => {
 		if (["approved", "rejected"].includes(request.status)) {
 			return res.status(400).json({ message: "This request has already been resolved." });
 		}
-		request.status = status;
+
 		if (status === "approved") {
-			pet.status = "adopted";
-			await pet.save();
+			await Pet.updateOne(pet._id, { status: "adopted" });
+			// Reject all other requests for this pet
 			await AdoptionRequest.updateMany(
-				{ petId: pet._id, _id: { $ne: request._id } },
-				{ $set: { status: "rejected" } }
+				{ petId: pet._id, _id: { $ne: req.params.id } },
+				{ status: "rejected" }
 			);
 		}
-		await request.save();
-		res.status(200).json(request);
+
+		await AdoptionRequest.updateOne(req.params.id, { status });
+		const updatedRequest = await AdoptionRequest.findById(req.params.id);
+		res.status(200).json(updatedRequest);
 	} catch (err) {
 		res.status(500).json({ message: "Internal server error." });
 	}

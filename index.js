@@ -3,7 +3,7 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const cookieParser = require("cookie-parser");
-const connectDB = require("./src/config/db");
+const { connectDB, closeDB } = require("./src/config/db");
 
 const authRoutes = require("./src/routes/auth.routes");
 const petRoutes = require("./src/routes/pet.routes");
@@ -44,5 +44,12 @@ const PORT = process.env.PORT || 5000;
 connectDB().then(() => {
 	app.listen(PORT, () => {
 		console.log(`Server running on port ${PORT}`);
+	});
+
+	// Graceful shutdown
+	process.on("SIGINT", async () => {
+		console.log("Shutting down gracefully...");
+		await closeDB();
+		process.exit(0);
 	});
 });

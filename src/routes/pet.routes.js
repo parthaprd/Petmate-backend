@@ -7,11 +7,12 @@ const router = express.Router();
 // GET /api/pets/featured (must be before /:id)
 router.get("/featured", async (req, res) => {
 	try {
-		const pets = await Pet.find({ status: "available" })
-			.sort({ createdAt: -1 })
-			.limit(6)
-			.select("-__v");
-		res.status(200).json(pets);
+		const pets = await Pet.findByStatus("available");
+		// Sort by createdAt and limit to 6
+		const sortedPets = pets
+			.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+			.slice(0, 6);
+		res.status(200).json(sortedPets);
 	} catch (err) {
 		res.status(500).json({ message: "Internal server error." });
 	}
@@ -20,9 +21,11 @@ router.get("/featured", async (req, res) => {
 // GET /api/pets/owner/listings (private, must be before /:id)
 router.get("/owner/listings", verifyToken, async (req, res) => {
 	try {
-		const pets = await Pet.find({ ownerEmail: req.user.email })
-			.sort({ createdAt: -1 });
-		res.status(200).json(pets);
+		const pets = await Pet.findByOwnerEmail(req.user.email);
+		const sortedPets = pets.sort(
+			(a, b) => new Date(b.createdAt) - new Date(a.createdAt)
+		);
+		res.status(200).json(sortedPets);
 	} catch (err) {
 		res.status(500).json({ message: "Internal server error." });
 	}
@@ -32,17 +35,26 @@ router.get("/owner/listings", verifyToken, async (req, res) => {
 router.get("/", async (req, res) => {
 	try {
 		const { search, species, sort } = req.query;
-		const filter = {};
+		let pets = await Pet.findAll();
+
+		// Apply filters
 		if (search) {
-			filter.name = { $regex: search, $options: "i" };
+			pets = pets.filter((pet) =>
+				pet.name.toLowerCase().includes(search.toLowerCase())
+			);
 		}
 		if (species) {
-			filter.species = { $in: species.split(",") };
+			const speciesArray = species.split(",");
+			pets = pets.filter((pet) => speciesArray.includes(pet.species));
 		}
-		let query = Pet.find(filter).select("-__v");
-		if (sort === "asc") query = query.sort({ adoptionFee: 1 });
-		else if (sort === "desc") query = query.sort({ adoptionFee: -1 });
-		const pets = await query;
+
+		// Apply sorting
+		if (sort === "asc") {
+			pets = pets.sort((a, b) => a.adoptionFee - b.adoptionFee);
+		} else if (sort === "desc") {
+			pets = pets.sort((a, b) => b.adoptionFee - a.adoptionFee);
+		}
+
 		res.status(200).json(pets);
 	} catch (err) {
 		res.status(500).json({ message: "Internal server error." });
@@ -52,7 +64,7 @@ router.get("/", async (req, res) => {
 // GET /api/pets/:id (public)
 router.get("/:id", async (req, res) => {
 	try {
-		const pet = await Pet.findById(req.params.id).select("-__v");
+		const pet = await Pet.findById(req.params.id);
 		if (!pet) return res.status(404).json({ message: "Pet not found." });
 		res.status(200).json(pet);
 	} catch (err) {
@@ -76,7 +88,8 @@ router.post("/", verifyToken, async (req, res) => {
 			adoptionFee,
 			description,
 		} = req.body;
-		const pet = new Pet({
+
+		const petData = {
 			name,
 			species,
 			breed,
@@ -89,8 +102,9 @@ router.post("/", verifyToken, async (req, res) => {
 			adoptionFee,
 			description,
 			ownerEmail: req.user.email,
-		});
-		await pet.save();
+		};
+
+		const pet = await Pet.create(petData);
 		res.status(201).json(pet);
 	} catch (err) {
 		res.status(500).json({ message: "Internal server error." });
@@ -100,10 +114,11 @@ router.post("/", verifyToken, async (req, res) => {
 // PUT /api/pets/:id (private)
 router.put("/:id", verifyToken, async (req, res) => {
 	try {
-		const pet = await Pet.findOne({ _id: req.params.id, ownerEmail: req.user.email });
-		if (!pet) {
+		const pet = await Pet.findById(req.params.id);
+		if (!pet || pet.ownerEmail !== req.user.email) {
 			return res.status(404).json({ message: "Pet not found or you are not the owner." });
 		}
+
 		// Only allow updatable fields
 		const updatableFields = [
 			"name",
@@ -118,11 +133,15 @@ router.put("/:id", verifyToken, async (req, res) => {
 			"adoptionFee",
 			"description",
 		];
+
+		const updateData = {};
 		updatableFields.forEach((field) => {
-			if (req.body[field] !== undefined) pet[field] = req.body[field];
+			if (req.body[field] !== undefined) updateData[field] = req.body[field];
 		});
-		await pet.save();
-		res.status(200).json(pet);
+
+		await Pet.updateOne(req.params.id, updateData);
+		const updatedPet = await Pet.findById(req.params.id);
+		res.status(200).json(updatedPet);
 	} catch (err) {
 		res.status(500).json({ message: "Internal server error." });
 	}
@@ -131,10 +150,12 @@ router.put("/:id", verifyToken, async (req, res) => {
 // DELETE /api/pets/:id (private)
 router.delete("/:id", verifyToken, async (req, res) => {
 	try {
-		const pet = await Pet.findOneAndDelete({ _id: req.params.id, ownerEmail: req.user.email });
-		if (!pet) {
+		const pet = await Pet.findById(req.params.id);
+		if (!pet || pet.ownerEmail !== req.user.email) {
 			return res.status(404).json({ message: "Pet not found or you are not the owner." });
 		}
+
+		await Pet.deleteOne(req.params.id);
 		res.status(200).json({ success: true, message: "Pet deleted successfully." });
 	} catch (err) {
 		res.status(500).json({ message: "Internal server error." });

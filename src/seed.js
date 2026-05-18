@@ -1,12 +1,10 @@
 // pet-adoption-server/src/seed.js
 // Run with: node src/seed.js
 
-const mongoose = require('mongoose');
-require('dotenv').config();
-const Pet = require('./models/Pet');
-const AdoptionRequest = require('./models/AdoptionRequest');
+const { MongoClient } = require("mongodb");
+require("dotenv").config();
 
-const OWNER_EMAIL = 'demo@petadopt.com'; // change to your test email
+const OWNER_EMAIL = "demo@petadopt.com"; // change to your test email
 
 const pets = [
   {
@@ -204,27 +202,45 @@ const pets = [
 ];
 
 const seed = async () => {
+  let client;
   try {
-    await mongoose.connect(process.env.MONGODB_URI);
+    client = new MongoClient(process.env.MONGODB_URI);
+    await client.connect();
     console.log('✅ MongoDB connected');
 
+    const db = client.db();
+    const petsCollection = db.collection('pets');
+    const requestsCollection = db.collection('adoptionrequests');
+
     // Clear existing data
-    await Pet.deleteMany({});
-    await AdoptionRequest.deleteMany({});
+    await petsCollection.deleteMany({});
+    await requestsCollection.deleteMany({});
     console.log('🗑️  Cleared existing pets and requests');
 
-    // Insert pets
-    const inserted = await Pet.insertMany(pets);
-    console.log(`🐾 Inserted ${inserted.length} pets`);
+    // Insert pets with timestamps
+    const petsWithTimestamps = pets.map(pet => ({
+      ...pet,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }));
+    
+    const result = await petsCollection.insertMany(petsWithTimestamps);
+    console.log(`🐾 Inserted ${result.insertedIds.length} pets`);
 
     console.log('\n✅ Seeding complete!');
     console.log('📋 Pet IDs for testing:');
-    inserted.forEach(p => console.log(`   ${p.name} (${p.species}) → ${p._id}`));
+    Object.values(result.insertedIds).forEach((id, index) => {
+      console.log(`   ${pets[index].name} (${pets[index].species}) → ${id}`);
+    });
 
     process.exit(0);
   } catch (err) {
     console.error('❌ Seeding failed:', err.message);
     process.exit(1);
+  } finally {
+    if (client) {
+      await client.close();
+    }
   }
 };
 
