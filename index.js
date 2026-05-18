@@ -32,6 +32,22 @@ app.get("/", (req, res) => {
 	res.json({ status: "Pet Adoption API is running" });
 });
 
+// Middleware to ensure DB connection
+let dbConnected = false;
+app.use(async (req, res, next) => {
+	if (!dbConnected) {
+		try {
+			await connectDB();
+			dbConnected = true;
+			console.log("Database connection established");
+		} catch (err) {
+			console.error("Failed to connect to database:", err);
+			return res.status(500).json({ message: "Database connection failed" });
+		}
+	}
+	next();
+});
+
 // Mount routes
 app.use("/api/auth", authRoutes);
 app.use("/api/pets", petRoutes);
@@ -39,8 +55,9 @@ app.use("/api/requests", requestRoutes);
 
 // Global error handler
 app.use((err, req, res, next) => {
-	console.error(err.stack);
-	res.status(500).json({ message: "Internal server error." });
+	console.error("Error:", err.message);
+	console.error("Stack:", err.stack);
+	res.status(500).json({ message: "Internal server error.", error: err.message });
 });
 
 // Export for Vercel serverless
@@ -50,6 +67,7 @@ module.exports = app;
 if (process.env.NODE_ENV !== "production") {
 	const PORT = process.env.PORT || 5000;
 	connectDB().then(() => {
+		dbConnected = true;
 		app.listen(PORT, () => {
 			console.log(`Server running on port ${PORT}`);
 		});
