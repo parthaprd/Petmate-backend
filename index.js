@@ -16,6 +16,9 @@ const allowedOrigins = process.env.CLIENT_URL
 	? process.env.CLIENT_URL.split(",")
 	: ["http://localhost:3000"];
 
+// Add the frontend vercel URL to allowed origins
+allowedOrigins.push("https://petmate-frontend-nd8w.vercel.app");
+
 app.use(
 	cors({
 		origin: allowedOrigins,
